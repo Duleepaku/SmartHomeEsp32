@@ -1,0 +1,94 @@
+name: Build
+
+# Runs on every push. Download the APK and firmware from the
+# "Actions" tab (Artifacts), or push a tag like v1.0.0 to make a Release.
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    name: ESP32 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core + libraries
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install "ArduinoJson@7.4.2"
+          arduino-cli lib install "PubSubClient@2.8"
+
+      - name: Compile
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir build firmware/SmartHome_ESP32
+          ls -la build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/*.ino.bin
+            build/*.ino.merged.bin
+
+  app:
+    name: Android app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android project files
+        run: |
+          flutter create --platforms=android --org com.example --project-name smart_home .
+          dart run tool/setup_android.dart
+
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../SmartHome.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartHome-apk
+          path: SmartHome.apk
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [firmware, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/SmartHome-apk/SmartHome.apk
+            out/firmware/*.bin
