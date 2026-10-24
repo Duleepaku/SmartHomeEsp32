@@ -141,4 +141,4 @@ free plan) – broker, port, username and password can be changed in the app.
 
 ## License
 
-MIT – see [LICENSE](LICENSE). Replace `YOUR_NAME` / `YOUR_GITHUB_USERNAME` with your details.
+MIT – see [LICENSE](LICENSE). Replace `Duleepa Pushpa Kumara` / `Duleepaku` with your details.
