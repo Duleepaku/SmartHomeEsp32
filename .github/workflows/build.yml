@@ -42,6 +42,33 @@ jobs:
             build/*.ino.bin
             build/*.ino.merged.bin
 
+  firmware8266:
+    name: ESP8266 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP8266 core + libraries
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266
+          arduino-cli lib install "ArduinoJson@7.4.2"
+          arduino-cli lib install "PubSubClient@2.8"
+
+      - name: Compile
+        run: |
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --output-dir build8266 firmware/SmartHome_ESP8266
+          ls -la build8266
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-esp8266
+          path: build8266/*.ino.bin
+
   app:
     name: Android app
     runs-on: ubuntu-latest
@@ -81,7 +108,7 @@ jobs:
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [firmware, app]
+    needs: [firmware, firmware8266, app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -92,3 +119,4 @@ jobs:
           files: |
             out/SmartHome-apk/SmartHome.apk
             out/firmware/*.bin
+            out/firmware-esp8266/*.bin
