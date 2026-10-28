@@ -10,7 +10,25 @@
 </p>
 
 ---
+## 📥 Download
 
+### Easy way – direct APK
+Download **SmartHome.apk** from the latest release:
+👉 https://github.com/Duleepaku/SmartHomeEsp32/releases/latest
+
+Open the file on your phone and tap **Install**
+(allow "Install unknown apps" if Android asks).
+
+### Get automatic updates – Obtainium
+[Obtainium](https://github.com/ImranR98/Obtainium) installs apps straight from GitHub
+and notifies you when a new version is released.
+
+1. Install Obtainium from its
+   [GitHub releases](https://github.com/ImranR98/Obtainium/releases),
+   [IzzyOnDroid](https://apt.izzysoft.de/fdroid/index/apk/dev.imranr.obtainium) or
+   [F-Droid](https://f-droid.org/packages/dev.imranr.obtainium.fdroid/).
+2. Open Obtainium → **Add App**.
+3. Paste this URL and tap **Add**:
 ## Features
 
 - **15 lamps ON / OFF**, plus **ALL ON / ALL OFF**
