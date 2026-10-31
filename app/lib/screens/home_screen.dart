@@ -7,6 +7,7 @@ import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/lamp_card.dart';
+import '../widgets/schedule_sheet.dart';
 import '../widgets/timer_sheet.dart';
 import 'connect_screen.dart';
 import 'settings_screen.dart';
@@ -177,6 +178,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _openSchedule(Lamp lamp) async {
+    final choice = await showScheduleSheet(
+      context,
+      lamp,
+      routerMode: _mode == 'router',
+      timeOk: widget.api.lastTimeOk,
+      deviceTime: widget.api.lastTime,
+    );
+    if (choice == null) return;
+    await _apply(
+      () => widget.api.setSchedule(lamp.id,
+          enabled: choice.enabled, onMin: choice.onMin, offMin: choice.offMin),
+      id: lamp.id,
+    );
+    if (choice.enabled) {
+      _snack('${lamp.name}: ON ${formatHM12(choice.onMin)}, OFF ${formatHM12(choice.offMin)} every day');
+    } else {
+      _snack('${lamp.name}: schedule OFF');
+    }
+  }
+
   Future<void> _rename(Lamp lamp) async {
     final ctl = TextEditingController(text: lamp.name);
     final name = await showDialog<String>(
@@ -234,6 +256,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onTap: () => Navigator.pop(ctx, 'timer'),
             ),
             ListTile(
+              leading: const Icon(Icons.schedule),
+              title: const Text('Daily schedule'),
+              subtitle: Text(lamp.schEnabled
+                  ? 'ON ${formatHM12(lamp.schOn)}  •  OFF ${formatHM12(lamp.schOff)}'
+                  : 'Not set'),
+              onTap: () => Navigator.pop(ctx, 'schedule'),
+            ),
+            ListTile(
               leading: const Icon(Icons.edit),
               title: const Text('Rename'),
               onTap: () => Navigator.pop(ctx, 'rename'),
@@ -245,6 +275,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted || choice == null) return;
     if (choice == 'toggle') _toggle(lamp);
     if (choice == 'timer') _openTimer(lamp);
+    if (choice == 'schedule') _openSchedule(lamp);
     if (choice == 'rename') _rename(lamp);
   }
 
@@ -323,6 +354,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _header() {
     final onCount = _lamps.where((l) => l.on).length;
     final timers = _lamps.where((l) => l.timer > 0).length;
+    final schedules = _lamps.where((l) => l.schEnabled).length;
     return Container(
       decoration: const BoxDecoration(
         gradient: AppTheme.header,
@@ -379,11 +411,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ],
               ),
               const SizedBox(height: 14),
-              Row(
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   _pill(Icons.lightbulb, '$onCount of ${_lamps.isEmpty ? 15 : _lamps.length} ON'),
-                  const SizedBox(width: 10),
                   if (timers > 0) _pill(Icons.timer, '$timers timer${timers > 1 ? 's' : ''}'),
+                  if (schedules > 0) _pill(Icons.schedule, '$schedules scheduled'),
                 ],
               ),
             ],

@@ -1,7 +1,7 @@
 name: smart_home
 description: "Smart Home - 15 lamp controller for ESP32 (hotspot or router mode)."
 publish_to: 'none'
-version: 2.0.0+2
+version: 2.1.0+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

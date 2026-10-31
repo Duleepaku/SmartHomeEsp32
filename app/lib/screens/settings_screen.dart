@@ -10,8 +10,8 @@ import '../models.dart';
 import '../storage.dart';
 import 'connect_screen.dart';
 
-const String kAppVersion = '2.0.0';
-const String kRepoUrl = 'github.com/YOUR_GITHUB_USERNAME/smart-home-esp32';
+const String kAppVersion = '2.1.0';
+const String kRepoUrl = 'github.com/Duleepaku/SmartHomeEsp32';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.api, required this.info});
@@ -771,7 +771,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _row('App', 'Smart Home v$kAppVersion'),
           _row('Firmware', 'v${_info.fw}'),
           _row('Source', kRepoUrl),
-          _row('Reset button', 'GPIO14 - hold 5 s at power on'),
+          _row('Reset button', 'Hold 5 s at power on (ESP32: GPIO14, ESP8266: RX)'),
         ],
       );
 }

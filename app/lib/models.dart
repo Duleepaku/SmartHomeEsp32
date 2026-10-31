@@ -5,11 +5,24 @@ import 'dart:convert';
 int _int(dynamic v, [int def = 0]) => v is num ? v.toInt() : (int.tryParse('$v') ?? def);
 String _str(dynamic v, [String def = '']) => v == null ? def : v.toString();
 
+int _minuteOfDay(dynamic v, int def) {
+  final m = _int(v, def);
+  return (m < 0 || m > 1439) ? def : m;
+}
+
 const String kDefaultBroker = 'broker.mqtt-dashboard.com';
 const int kDefaultBrokerPort = 1883;
 
 class Lamp {
-  Lamp({required this.id, required this.name, required this.on, this.timer = 0});
+  Lamp({
+    required this.id,
+    required this.name,
+    required this.on,
+    this.timer = 0,
+    this.schEnabled = false,
+    this.schOn = 18 * 60,
+    this.schOff = 6 * 60,
+  });
 
   final int id;
   String name;
@@ -18,11 +31,21 @@ class Lamp {
   /// Seconds until the lamp turns OFF automatically (0 = no timer).
   int timer;
 
+  /// Daily schedule: ON / OFF time in minutes after midnight (every day).
+  bool schEnabled;
+  int schOn;
+  int schOff;
+
+  String get scheduleText => '${formatHM(schOn)} - ${formatHM(schOff)}';
+
   factory Lamp.fromJson(Map<String, dynamic> j) => Lamp(
         id: _int(j['id']),
         name: _str(j['name'], 'Lamp'),
         on: j['on'] == true,
         timer: _int(j['timer']),
+        schEnabled: j['sch'] == true,
+        schOn: _minuteOfDay(j['sch_on'], 18 * 60),
+        schOff: _minuteOfDay(j['sch_off'], 6 * 60),
       );
 
   static List<Lamp> listFromJson(Map<String, dynamic> j) {
@@ -227,6 +250,21 @@ class CloudProfile {
       return null;
     }
   }
+}
+
+/// 1110 -> "18:30"   (minutes after midnight -> HH:MM, 24 h)
+String formatHM(int minutes) {
+  final h = (minutes ~/ 60) % 24;
+  final m = minutes % 60;
+  return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+}
+
+/// 1110 -> "6:30 PM"
+String formatHM12(int minutes) {
+  final h24 = (minutes ~/ 60) % 24;
+  final m = minutes % 60;
+  final h12 = h24 % 12 == 0 ? 12 : h24 % 12;
+  return '$h12:${m.toString().padLeft(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}';
 }
 
 /// 95 -> "01:35",  3725 -> "1:02:05"

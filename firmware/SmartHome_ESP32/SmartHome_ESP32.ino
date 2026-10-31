@@ -41,7 +41,7 @@
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 
-#define FW_VERSION "3.0.0"
+#define FW_VERSION "3.1.0"
 
 // ---------------- Settings you may change ----------------
 const char AP_SSID[]  = "Smart Home";    // hotspot name
@@ -93,6 +93,7 @@ const int lampPins[NUM_LAMPS] = {
 #define MAX_TIMER_MINUTES        1440      // 24 hours
 #define NAME_MAX_LEN               64     // bytes (Sinhala letters use 3 bytes each)
 #define KEY_LEN                    12
+#define TZ_OFFSET_SEC           19800      // Sri Lanka = UTC+5:30 (change for other countries)
 
 // ---------------- Runtime state ----------------
 bool          lampState[NUM_LAMPS];
@@ -360,6 +361,119 @@ void checkTimers()
   }
 }
 
+// ============================================================
+//  Daily schedules - each lamp: ON at hh:mm, OFF at hh:mm, every day
+//  Needs the time from the internet (Router mode). Not used in Hotspot mode.
+// ============================================================
+bool     schEn[NUM_LAMPS];
+uint16_t schOn[NUM_LAMPS];          // minute of the day 0..1439
+uint16_t schOff[NUM_LAMPS];
+bool     timeSynced      = false;
+bool     scheduleApplied = false;   // state after boot applied once
+long     lastSchedMinute = -1;      // local minutes since 1970, last processed
+
+void startTimeSync()
+{
+  // UTC from the internet; the local offset is added in localMinutes()
+  configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+}
+
+bool timeValid() { return time(nullptr) > 1700000000; }
+
+long localMinutes() { return (long)((time(nullptr) + TZ_OFFSET_SEC) / 60); }
+
+String hm(int m)
+{
+  char b[8];
+  snprintf(b, sizeof(b), "%02d:%02d", (m / 60) % 24, m % 60);
+  return String(b);
+}
+
+String nowHM() { return timeValid() ? hm((int)(localMinutes() % 1440)) : String(""); }
+
+// true when 'now' is between ON and OFF (works over midnight, e.g. 18:00 -> 06:00)
+bool inWindow(int on, int off, int now)
+{
+  if (on == off) return false;
+  if (on < off)  return now >= on && now < off;
+  return now >= on || now < off;
+}
+
+void loadSchedules()
+{
+  prefs.begin("sched", true);
+  for (int i = 0; i < NUM_LAMPS; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "s%d", i + 1);
+    uint32_t v = prefs.getUInt(key, 0xFFFFFFFFUL);
+    uint16_t on = (v >> 11) & 0x7FF, off = v & 0x7FF;
+    if (v == 0xFFFFFFFFUL || on > 1439 || off > 1439) {
+      schEn[i] = false; schOn[i] = 18 * 60; schOff[i] = 6 * 60;   // default 18:00 - 06:00
+    } else {
+      schEn[i] = (v >> 22) & 1; schOn[i] = on; schOff[i] = off;
+    }
+  }
+  prefs.end();
+}
+
+void saveSchedule(int i)
+{
+  prefs.begin("sched", false);
+  char key[16];
+  snprintf(key, sizeof(key), "s%d", i + 1);
+  prefs.putUInt(key, ((uint32_t)(schEn[i] ? 1 : 0) << 22) | ((uint32_t)schOn[i] << 11) | schOff[i]);
+  prefs.end();
+  markStatesDirty();
+}
+
+void checkSchedules()
+{
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < 1000) return;
+  lastCheck = millis();
+  if (!timeValid()) return;
+
+  long nowMin = localMinutes();
+  if (!timeSynced) {
+    timeSynced = true;
+    Serial.printf("Time synced: %s\n", nowHM().c_str());
+  }
+
+  // First time after boot / power cut: put every scheduled lamp in the right state
+  if (!scheduleApplied) {
+    scheduleApplied = true;
+    int mod = (int)(nowMin % 1440);
+    for (int i = 0; i < NUM_LAMPS; i++) {
+      if (!schEn[i]) continue;
+      bool want = inWindow(schOn[i], schOff[i], mod);
+      if (lampState[i] != want) {
+        Serial.printf("Schedule (after start): Lamp %d %s\n", i + 1, want ? "ON" : "OFF");
+        setLamp(i, want);
+      }
+    }
+    lastSchedMinute = nowMin;
+    return;
+  }
+
+  if (nowMin == lastSchedMinute) return;
+  long from = lastSchedMinute + 1;
+  if (nowMin < lastSchedMinute || nowMin - from > 120) from = nowMin;   // clock jumped
+  for (long m = from; m <= nowMin; m++) {
+    int mod = (int)(m % 1440);
+    for (int i = 0; i < NUM_LAMPS; i++) {
+      if (!schEn[i] || schOn[i] == schOff[i]) continue;
+      if (mod == schOn[i]) {
+        Serial.printf("Schedule: Lamp %d ON (%s)\n", i + 1, hm(mod).c_str());
+        setLamp(i, true);
+      } else if (mod == schOff[i]) {
+        Serial.printf("Schedule: Lamp %d OFF (%s)\n", i + 1, hm(mod).c_str());
+        setLamp(i, false);
+      }
+    }
+  }
+  lastSchedMinute = nowMin;
+}
+
 void initLamps()
 {
   // Set the OFF level before enabling the outputs (no relay click at boot)
@@ -448,6 +562,7 @@ void printBanner()
   if (netMode != MODE_STA)
     Serial.printf(" Hotspot IP : %s   (%s)\n", WiFi.softAPIP().toString().c_str(), AP_SSID);
   Serial.printf(" Cloud key  : %s\n", deviceKey.c_str());
+  Serial.printf(" Time       : %s\n", timeValid() ? nowHM().c_str() : "not synced yet");
   Serial.println("------------------------------------------");
 }
 
@@ -521,6 +636,7 @@ void startNetwork()
     startHotspot(false);
   }
   udp.begin(DISCOVERY_PORT);
+  startTimeSync();                     // time for schedules (works in Router mode)
 }
 
 // Called from loop(): keeps router mode alive, falls back to hotspot
@@ -550,6 +666,7 @@ void maintainNetwork()
       }
     } else if (WiFi.status() == WL_CONNECTED) {
       Serial.println("Router is back - hotspot OFF");
+      startTimeSync();
       WiFi.softAPdisconnect(true);
       WiFi.mode(WIFI_STA);
       netMode = MODE_STA;
@@ -595,6 +712,8 @@ void fillInfo(JsonDocument &doc)
   doc["lamps"]       = NUM_LAMPS;
   doc["max_timer_min"] = MAX_TIMER_MINUTES;
   doc["uptime"]      = millis() / 1000;
+  doc["time_ok"]     = timeValid();
+  doc["time"]        = nowHM();
   doc["key"]         = deviceKey;
   doc["mqtt_enabled"]   = mqttEnabled;
   doc["mqtt_host"]      = mqttHost;
@@ -611,7 +730,12 @@ void fillStatus(JsonDocument &doc)
     o["name"]  = lampName[i];
     o["on"]    = lampState[i];
     o["timer"] = timerRemainingSec(i);        // seconds left, 0 = no timer
+    o["sch"]     = schEn[i];                  // daily schedule on/off
+    o["sch_on"]  = schOn[i];                  // minutes after midnight
+    o["sch_off"] = schOff[i];
   }
+  doc["time_ok"] = timeValid();
+  doc["time"]    = nowHM();
   doc["mode"]   = modeName();
   doc["ip"]     = currentIP();
   doc["uptime"] = millis() / 1000;
@@ -628,6 +752,9 @@ void fillBackup(JsonDocument &doc)
     o["id"]   = i + 1;
     o["name"] = lampName[i];
     o["on"]   = lampState[i];
+    o["sch"]     = schEn[i];
+    o["sch_on"]  = schOn[i];
+    o["sch_off"] = schOff[i];
   }
 }
 
@@ -744,6 +871,7 @@ int cmdImport(JsonVariantConst a, JsonDocument &out)
 
   bool doNames  = aBool(a, "names", true);
   bool doStates = aBool(a, "states", true);
+  bool doScheds = aBool(a, "schedules", true);
   int  changed  = 0;
 
   for (JsonObjectConst o : arr) {
@@ -755,6 +883,13 @@ int cmdImport(JsonVariantConst a, JsonDocument &out)
       saveName(i);
     }
     if (doStates && o["on"].is<bool>()) setLamp(i, o["on"].as<bool>());
+    if (doScheds && o["sch"].is<bool>()) {
+      int on = o["sch_on"] | -1, off = o["sch_off"] | -1;
+      if (on >= 0 && on <= 1439 && off >= 0 && off <= 1439) {
+        schEn[i] = o["sch"].as<bool>(); schOn[i] = on; schOff[i] = off;
+        saveSchedule(i);
+      }
+    }
     changed++;
   }
   if (changed == 0) return fail(out, "no valid lamps in JSON");
@@ -787,6 +922,23 @@ int cmdScan(JsonDocument &out)
   }
   WiFi.scanDelete();
   return 200;
+}
+
+// "18:00" or minutes -> 0..1439,  -2 = not given,  -1 = wrong
+int parseTimeArg(JsonVariantConst a, const char *k)
+{
+  if (!aHas(a, k)) return -2;
+  String s = aStr(a, k);
+  s.trim();
+  if (s.length() == 0) return -1;
+  int c = s.indexOf(':');
+  if (c > 0) {
+    int h = s.substring(0, c).toInt(), m = s.substring(c + 1).toInt();
+    if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+    return h * 60 + m;
+  }
+  int v = s.toInt();
+  return (v >= 0 && v <= 1439) ? v : -1;
 }
 
 int runCommand(String cmd, JsonVariantConst a, JsonDocument &out)
@@ -839,6 +991,24 @@ int runCommand(String cmd, JsonVariantConst a, JsonDocument &out)
   }
 
   if (cmd == "export") { out["ok"] = true; fillBackup(out); return 200; }
+
+  if (cmd == "sched_get") { out["ok"] = true; fillStatus(out); return 200; }
+  if (cmd == "sched_set") {         // id, enabled, on="18:00", off="06:00"
+    int i = lampIndexArg(a);
+    if (i < 0) return fail(out, "lamp id is not valid");
+    int on  = parseTimeArg(a, "on");
+    int off = parseTimeArg(a, "off");
+    if (on == -1 || off == -1) return fail(out, "time must be HH:MM (00:00 - 23:59)");
+    bool en = aHas(a, "enabled") ? aBool(a, "enabled", false) : schEn[i];
+    int newOn  = on  >= 0 ? on  : schOn[i];
+    int newOff = off >= 0 ? off : schOff[i];
+    if (en && newOn == newOff) return fail(out, "ON and OFF time must be different");
+    schEn[i] = en; schOn[i] = newOn; schOff[i] = newOff;
+    saveSchedule(i);
+    // set now inside the ON period -> switch ON straight away
+    if (en && timeValid() && inWindow(newOn, newOff, (int)(localMinutes() % 1440))) setLamp(i, true);
+    out["ok"] = true; fillStatus(out); return 200;
+  }
   if (cmd == "import") return cmdImport(a, out);
 
   if (cmd == "wifi_get") {
@@ -922,6 +1092,7 @@ void apiMqttGet()   { httpCommand("mqtt_get"); }
 void apiMqttSet()   { httpCommand("mqtt_set"); }
 void apiReboot()    { httpCommand("reboot"); }
 void apiResetWifi() { httpCommand("reset_wifi"); }
+void apiSchedSet()  { httpCommand("sched_set"); }
 
 void apiOptions()
 {
@@ -963,6 +1134,7 @@ String buildPage()
          ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;max-width:900px;margin:auto}"
          ".card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.15)}"
          ".card.on{border-top:5px solid #22a559}.card.off{border-top:5px solid #c9ced6}"
+         ".sc{font-size:12px;color:#4b5bd6;margin:-4px 0 6px}"
          ".name{font-weight:bold;margin-bottom:8px}.tm{font-size:12px;color:#c77700;margin:-4px 0 6px}"
          "a{display:inline-block;width:44%;padding:10px 0;margin:2px;border-radius:6px;color:#fff;text-decoration:none;font-weight:bold}"
          ".b1{background:#22a559}.b0{background:#d64545}.bs{background:#4b5bd6}"
@@ -982,6 +1154,9 @@ String buildPage()
     p += "<span>WiFi: <b>" + htmlEscape(staSsid) + "</b> (" + String(WiFi.RSSI()) + " dBm)</span>";
   }
   if (netMode != MODE_STA) p += "<span>Hotspot IP: <b>" + WiFi.softAPIP().toString() + "</b></span>";
+  p += "<span>Time: <b>";
+  p += timeValid() ? nowHM() : String("not synced");
+  p += "</b></span>";
   p += "<span>Cloud: <b>";
   p += !mqttEnabled ? "off" : (mqtt.connected() ? "connected" : (netMode == MODE_STA ? "connecting" : "router mode only"));
   p += "</b></span></div>";
@@ -998,6 +1173,11 @@ String buildPage()
     p += htmlEscape(lampName[i]);
     p += lampState[i] ? " (ON)" : " (OFF)";
     p += "</div>";
+    if (schEn[i]) {
+      p += "<div class='sc'>&#9200; ";
+      p += hm(schOn[i]) + " - " + hm(schOff[i]);
+      p += "</div>";
+    }
     long rem = timerRemainingSec(i);
     if (rem > 0) {
       p += "<div class='tm'>OFF in ";
@@ -1309,6 +1489,7 @@ void setup()
   loadWifiSettings();
   loadMqttSettings();
   checkResetButton();                  // GPIO14 held 5 s -> WiFi reset
+  loadSchedules();
   startNetwork();
 
   mqtt.setBufferSize(MQTT_BUFFER_SIZE);
@@ -1331,6 +1512,8 @@ void setup()
   server.on("/api/mqtt",       HTTP_POST, apiMqttSet);
   server.on("/api/reboot",     HTTP_POST, apiReboot);
   server.on("/api/reset_wifi", HTTP_POST, apiResetWifi);
+  server.on("/api/schedule",   HTTP_GET,  apiStatus);
+  server.on("/api/schedule",   HTTP_POST, apiSchedSet);
   server.on("/setup",          HTTP_GET,  handleSetupPage);
   server.onNotFound(handleRequest);    // "/", old URLs, everything else
   server.begin();
@@ -1343,6 +1526,7 @@ void loop()
   server.handleClient();
   handleDiscovery();
   checkTimers();
+  checkSchedules();
   maintainNetwork();
   mqttLoop();
   updateStatusLed();

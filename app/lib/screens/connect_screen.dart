@@ -337,7 +337,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
               '• Away from home: connect once at home (the app saves the cloud key), '
               'then the app uses the cloud automatically.\n'
               '• If the phone asks "WiFi has no internet - stay connected?", choose Yes.\n'
-              '• Forgot passwords? Hold the GPIO14 button while powering on for 5 seconds.',
+              '• Forgot passwords? Hold the reset button (ESP32: GPIO14, ESP8266: RX) while powering on for 5 seconds.',
               style: TextStyle(color: Colors.white, height: 1.5),
             ),
           ],

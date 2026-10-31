@@ -205,6 +205,16 @@ class MqttDeviceApi extends DeviceApi {
       parseLamps(await _request('name', {'id': id, 'name': name}));
 
   @override
+  Future<List<Lamp>> setSchedule(int id,
+          {required bool enabled, required int onMin, required int offMin}) async =>
+      parseLamps(await _request('sched_set', {
+        'id': id,
+        'enabled': enabled,
+        'on': formatHM(onMin),
+        'off': formatHM(offMin),
+      }));
+
+  @override
   Future<String> exportJson() async => DeviceApi.pretty(DeviceApi.backupOnly(await _request('export')));
 
   @override

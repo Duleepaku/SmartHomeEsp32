@@ -30,6 +30,30 @@ All `/api/...` replies are JSON. Errors: `{"ok":false,"error":"..."}` with HTTP 
 
 `timer` = seconds until the lamp turns OFF (0 = no timer). Max timer: 1440 min (24 h).
 
+## Daily schedules (Router mode)
+
+Each lamp can have one daily schedule: ON at `HH:MM`, OFF at `HH:MM`, every day.
+The device gets the time from the internet (NTP, Sri Lanka time UTC+5:30), so schedules
+work in **Router mode** only. They run on the device – the phone can be off.
+
+| Method | URL | What it does |
+|---|---|---|
+| GET | `/api/schedule` | Same as `/api/status` |
+| POST | `/api/schedule` form `id=1&enabled=1&on=18:00&off=06:00` | Save a schedule (`enabled=0` = off) |
+
+MQTT command: `{"cmd":"sched_set","id":1,"enabled":true,"on":"18:00","off":"06:00"}`
+
+Every lamp in `/api/status` has `sch` (true/false), `sch_on`, `sch_off` (minutes after
+midnight, e.g. 1080 = 18:00). The status also has `time_ok` and `time` ("HH:MM").
+
+Rules:
+- ON time later than OFF time (18:00 → 06:00) runs over midnight.
+- After a power cut, when the time is known again, each scheduled lamp is set to the
+  right state (e.g. power back at 21:00 with 18:00–06:00 → lamp ON).
+- Switching a lamp by hand is allowed; the schedule switches it again at the next ON/OFF time.
+- Saving a schedule while inside its ON period switches the lamp ON straight away.
+- Schedules are included in the JSON backup.
+
 ## Backup (JSON)
 
 | Method | URL | What it does |

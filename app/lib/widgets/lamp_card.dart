@@ -100,7 +100,7 @@ class LampCard extends StatelessWidget {
                 const Spacer(),
                 Text(
                   lamp.name,
-                  maxLines: 2,
+                  maxLines: lamp.schEnabled ? 1 : 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: fg,
@@ -108,6 +108,28 @@ class LampCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (lamp.schEnabled)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(
+                      children: [
+                        Icon(Icons.schedule, size: 13, color: on ? Colors.white70 : colors[1]),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            lamp.scheduleText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: on ? Colors.white70 : colors[1],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 Row(
                   children: [

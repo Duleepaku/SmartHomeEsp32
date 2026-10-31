@@ -45,4 +45,19 @@ void main() {
     expect(back.port, 1883);
     expect(CloudProfile.fromJsonString('{"key":"short"}'), isNull);
   });
+
+  test('parses lamp schedule', () {
+    final lamps = Lamp.listFromJson({
+      'lamps': [
+        {'id': 1, 'name': 'Gate', 'on': false, 'timer': 0, 'sch': true, 'sch_on': 1080, 'sch_off': 360},
+        {'id': 2, 'name': 'Lamp 2', 'on': false},
+      ],
+    });
+    expect(lamps[0].schEnabled, isTrue);
+    expect(lamps[0].scheduleText, '18:00 - 06:00');
+    expect(formatHM12(1080), '6:00 PM');
+    expect(formatHM12(0), '12:00 AM');
+    expect(lamps[1].schEnabled, isFalse);
+    expect(lamps[1].schOn, 1080);
+  });
 }

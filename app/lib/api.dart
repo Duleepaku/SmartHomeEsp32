@@ -26,9 +26,17 @@ abstract class DeviceApi {
   String? lastIp;
   String? lastMode;
 
+  /// Device clock (for schedules): synced from the internet in Router mode.
+  bool lastTimeOk = false;
+  String lastTime = '';
+
   List<Lamp> parseLamps(Map<String, dynamic> j) {
     if (j['ip'] is String && (j['ip'] as String).isNotEmpty) lastIp = j['ip'] as String;
     if (j['mode'] is String) lastMode = j['mode'] as String;
+    if (j.containsKey('time_ok')) {
+      lastTimeOk = j['time_ok'] == true;
+      lastTime = j['time'] is String ? j['time'] as String : '';
+    }
     return Lamp.listFromJson(j);
   }
 
@@ -40,6 +48,9 @@ abstract class DeviceApi {
   Future<List<Lamp>> setTimer(int id, int minutes);
   Future<List<Lamp>> setAll(bool on);
   Future<List<Lamp>> rename(int id, String name);
+
+  /// Daily schedule for one lamp. [onMin] / [offMin] = minutes after midnight.
+  Future<List<Lamp>> setSchedule(int id, {required bool enabled, required int onMin, required int offMin});
 
   Future<String> exportJson();
   Future<List<Lamp>> importJson(String json, {bool names = true, bool states = true});
@@ -148,6 +159,16 @@ class HttpDeviceApi extends DeviceApi {
   @override
   Future<List<Lamp>> rename(int id, String name) async =>
       parseLamps(await _postForm('/api/name', {'id': '$id', 'name': name}));
+
+  @override
+  Future<List<Lamp>> setSchedule(int id,
+          {required bool enabled, required int onMin, required int offMin}) async =>
+      parseLamps(await _postForm('/api/schedule', {
+        'id': '$id',
+        'enabled': enabled ? '1' : '0',
+        'on': formatHM(onMin),
+        'off': formatHM(offMin),
+      }));
 
   @override
   Future<String> exportJson() async =>
